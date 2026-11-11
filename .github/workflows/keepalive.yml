@@ -25,6 +25,7 @@ jobs:
           fail=0; n=0
           while read -r url; do
             echo "::group::$url"
+            mkdir -p "$RUNNER_TEMP/dl"
             if pd download --all -o "$RUNNER_TEMP/dl" "$url"; then st=done; else st=FAILED; fail=1; echo "::error::failed $url"; fi
             echo "$(date -u +%FT%TZ) $st $url" >> log.txt
             echo "::endgroup::"
