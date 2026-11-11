@@ -1,0 +1,2 @@
+# Mỗi dòng 1 link PixelDrain (file /u/xxx hoặc album /l/xxx). Dòng bắt đầu bằng # bị bỏ qua.
+https://pixeldrain.com/u/xxxxxxxx
