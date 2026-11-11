@@ -2,37 +2,29 @@ name: PixelDrain keep-alive
 
 on:
   schedule:
-    - cron: "0 3 * * 1"   # 03:00 UTC mỗi thứ Hai (PixelDrain xóa sau ~120 ngày không ai tải)
+    - cron: "0 3 * * 1"   # 03:00 UTC mỗi thứ Hai (PixelDrain xóa sau ~120 ngày không ai xem)
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  download:
+  keepalive:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
-      - run: go install github.com/jkawamoto/go-pixeldrain/cmd/pd@latest
-
-      - name: Download every link in file.txt
+      - name: Touch every link in file.txt
         run: |
-          fail=0; n=0
+          # Tải 1 KB đầu file qua API là đủ để PixelDrain tính 1 view + 1 download (đã kiểm chứng),
+          # không cần tải trọn file nhiều GB.
+          fail=0
           while read -r url; do
-            echo "::group::$url"
-            mkdir -p "$RUNNER_TEMP/dl"
-            if pd download --all -o "$RUNNER_TEMP/dl" "$url"; then st=done; else st=FAILED; fail=1; echo "::error::failed $url"; fi
+            id=${url##*/}
+            code=$(curl -s -r 0-1023 -o /dev/null -w '%{http_code}' "https://pixeldrain.com/api/file/$id")
+            if [ "$code" = 206 ] || [ "$code" = 200 ]; then st=done; else st="FAILED($code)"; fail=1; echo "::error::$url -> HTTP $code"; fi
             echo "$(date -u +%FT%TZ) $st $url" >> log.txt
-            echo "::endgroup::"
-            n=$((n+1))
-            if [ $n -ge 5 ]; then rm -rf "$RUNNER_TEMP/dl"; n=0; fi   # mỗi lô 5 file thì xóa
           done < <(grep -vE '^\s*(#|$)' file.txt)
-          rm -rf "$RUNNER_TEMP/dl"
           echo "fail=$fail" >> "$GITHUB_ENV"
 
       - name: Commit log.txt (giữ repo active, tránh cron bị tắt sau 60 ngày)
