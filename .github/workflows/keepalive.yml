@@ -35,10 +35,10 @@ jobs:
               curl -s -L -c cookies.txt -A "$ua" -o /dev/null "https://pixeldrain.com/u/$id"
               sleep 1
 
-              need=$(( size * 12 / 100 + 1 ))
+              need=$(( size * 20 / 100 + 1 ))
               [ "$need" -gt "$size" ] && need=$size
 
-              # 2. Tải 12% đầu của file (kèm cookie và Referer chuẩn)
+              # 2. Tải 20% đầu của file (kèm cookie và Referer chuẩn)
               read -r code got < <(curl -s -L -b cookies.txt -A "$ua" \
                 -e "https://pixeldrain.com/u/$id" \
                 -r "0-$(( need - 1 ))" -o /dev/null -w '%{http_code} %{size_download}\n' \
