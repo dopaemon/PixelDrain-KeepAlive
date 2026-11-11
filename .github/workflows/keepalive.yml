@@ -2,7 +2,7 @@ name: PixelDrain keep-alive
 
 on:
   schedule:
-    - cron: "0 3 * * 1"   # 03:00 UTC mỗi thứ Hai (PixelDrain xóa sau 60 ngày không ai tải)
+    - cron: "0 3 * * 1"   # 03:00 UTC mỗi thứ Hai
   workflow_dispatch:
 
 permissions:
@@ -14,54 +14,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Touch every link in file.txt via Cloudflare Worker
+      - name: Touch every link in file.txt
         timeout-minutes: 300
         run: |
-          # Cấu hình domain Cloudflare Worker của bạn
-          WORKER_URL="https://pixeldrain.cloudpanic.org"
-          ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
           fail=0
 
           while read -r url; do
-            # Cắt bỏ khoảng trắng thừa (hoặc ký tự \r nếu file.txt tạo trên Windows) và lấy ID
             url=$(echo "$url" | tr -d '\r' | xargs)
             id=${url##*/}
 
-            # 1. Lấy thông tin dung lượng file
-            # (Nếu dùng bản Worker All-in-One có hỗ trợ ?json thì đổi thành: "$WORKER_URL/$id?json")
             info=$(curl -s --retry 3 -A "$ua" "https://pixeldrain.com/api/file/$id/info")
             size=$(jq -r '.size // 0' <<<"$info")
             avail=$(jq -r '.availability // ""' <<<"$info")
 
             if [ "$size" -le 0 ]; then
-              st="FAILED(info: $(jq -r '.value // .message // "unknown"' <<<"$info"))"
+              st="FAILED(info: $(jq -r '.value // "unknown"' <<<"$info"))"
             else
-              # Mở trang /u/<id> để tăng 1 view (tránh việc downloads > 3x views bị dính captcha)
-              curl -s -A "$ua" -o /dev/null "https://pixeldrain.com/u/$id"
+              # 1. Giả lập mở trang web xem file (lấy cookie + tăng view để không bị bật captcha)
+              curl -s -L -c cookies.txt -A "$ua" -o /dev/null "https://pixeldrain.com/u/$id"
+              sleep 1
 
-              # Tính toán 12% dung lượng đầu file cần tải (để vượt ngưỡng >10% reset hạn xóa của PixelDrain)
               need=$(( size * 12 / 100 + 1 ))
               [ "$need" -gt "$size" ] && need=$size
 
-              # 2. Tải 12% đầu của file thông qua đường dẫn /download/<id> của Cloudflare Worker
-              read -r code got < <(curl -s -L --retry 2 -A "$ua" \
+              # 2. Tải 12% đầu của file (kèm cookie và Referer chuẩn)
+              read -r code got < <(curl -s -L -b cookies.txt -A "$ua" \
+                -e "https://pixeldrain.com/u/$id" \
                 -r "0-$(( need - 1 ))" -o /dev/null -w '%{http_code} %{size_download}\n' \
-                "$WORKER_URL/download/$id")
+                "https://pixeldrain.com/api/file/$id?download")
 
               if { [ "$code" = 206 ] || [ "$code" = 200 ]; } && [ "$got" -ge "$need" ]; then
-                st="done($(( got / 1048576 ))MB/$(( size / 1048576 ))MB last_view=$(jq -r '.date_last_view // "N/A"' <<<"$info"))"
+                st="done($(( got / 1048576 ))MB/$(( size / 1048576 ))MB last_view=$(jq -r .date_last_view <<<"$info"))"
               else
                 st="FAILED(http=$code got=$got need=$need $avail)"
               fi
+              rm -f cookies.txt
             fi
 
             case $st in FAILED*) fail=1; echo "::error::$url -> $st";; esac
             echo "$(date -u +%FT%TZ) $st $url" | tee -a log.txt
+
+            # Nghỉ 3 giây giữa mỗi file để PixelDrain không khóa IP của GitHub Actions
+            sleep 3
           done < <(grep -vE '^\s*(#|$)' file.txt)
 
           echo "fail=$fail" >> "$GITHUB_ENV"
 
-      - name: Commit log.txt (giữ repo active, tránh cron bị tắt sau 60 ngày)
+      - name: Commit log.txt
         if: always()
         run: |
           git config user.name github-actions
